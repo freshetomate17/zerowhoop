@@ -1,0 +1,10 @@
+# ZeroWhoop — ZeroClaw plugin manifest
+# Skill-only plugin: no wasm_path required (PluginCapability::Skill).
+# Skills are discovered from skills/ and registered as plugin:whoop/<skill-name>.
+
+name        = "whoop"
+version     = "0.1.0"
+description = "WHOOP biometric health pipeline: ingest raw data, detect patterns, deliver personalised coaching."
+author      = "zerowhoop"
+license     = "MIT"
+capabilities = ["skill"]
