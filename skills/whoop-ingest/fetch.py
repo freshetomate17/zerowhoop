@@ -10,7 +10,6 @@ Usage:
 
 import argparse
 import json
-import re
 import sqlite3
 import sys
 import time
@@ -27,11 +26,17 @@ except ImportError:
     except ImportError:
         sys.exit("tomllib not available. Python >=3.11 has it built-in, or: pip install tomli")
 
+# SecretStore lives two levels up in lib/
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "lib"))
+from secret_store import SecretStore  # noqa: E402
+
 CONFIG_PATH = Path.home() / ".zeroclaw" / "config.toml"
 DB_PATH = Path.home() / ".zeroclaw" / "workspace" / "data" / "whoop.db"
 WHOOP_BASE = "https://api.prod.whoop.com/developer/v1"
 TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
 MOCK_SEED_PATH = Path.home() / ".zeroclaw" / "workspace" / "data" / "mock_whoop_seed.json"
+
+PLUGIN_NAME = "whoop"
 
 SPORT_NAMES: dict[int, str] = {
     -1: "activity", 0: "running", 1: "cycling", 16: "baseball",
@@ -55,70 +60,65 @@ SPORT_NAMES: dict[int, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Config helpers
+# Config and secret helpers
 # ---------------------------------------------------------------------------
 
 def load_config() -> dict:
+    """Load non-secret config (mode, channel_id, etc.) from config.toml."""
+    if not CONFIG_PATH.exists():
+        return {}
     with open(CONFIG_PATH, "rb") as f:
         return tomllib.load(f)
 
 
-def save_tokens(access_token: str, refresh_token: str, expires_at: str) -> None:
-    """Update OAuth tokens in config.toml in-place."""
-    text = CONFIG_PATH.read_text(encoding="utf-8")
-    for key, val in [
-        ("access_token", access_token),
-        ("refresh_token", refresh_token),
-        ("token_expires_at", expires_at),
-    ]:
-        text = re.sub(
-            rf'^({re.escape(key)}\s*=\s*)"[^"]*"',
-            rf'\g<1>"{val}"',
-            text,
-            flags=re.MULTILINE,
-        )
-    CONFIG_PATH.write_text(text, encoding="utf-8")
+def ensure_valid_token(store: SecretStore) -> str:
+    """Return a valid access token, refreshing via OAuth if expired.
 
+    Reads credentials from the SecretStore and writes refreshed tokens back
+    to the SecretStore — never touches config.toml for secrets.
+    """
+    expires_str = store.get("whoop_token_expires_at")
 
-def ensure_valid_token(cfg: dict) -> str:
-    """Return a valid access token, refreshing via OAuth if expired."""
-    whoop = cfg["whoop"]
-    expires_str = whoop.get("token_expires_at", "")
-
-    if expires_str:
-        try:
-            expires_at = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) < expires_at - timedelta(minutes=5):
-                return whoop["access_token"]
-        except ValueError:
-            pass
+    try:
+        expires_at = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) < expires_at - timedelta(minutes=5):
+            return store.get("whoop_access_token")
+    except (ValueError, AttributeError):
+        pass
 
     print("Access token expired or missing — refreshing...", file=sys.stderr)
     resp = requests.post(
         TOKEN_URL,
         data={
             "grant_type": "refresh_token",
-            "refresh_token": whoop["refresh_token"],
-            "client_id": whoop["client_id"],
-            "client_secret": whoop["client_secret"],
+            "refresh_token": store.get("whoop_refresh_token"),
+            "client_id": store.get("whoop_client_id"),
+            "client_secret": store.get("whoop_client_secret"),
         },
         timeout=15,
     )
     if resp.status_code != 200:
         sys.exit(
             f"Token refresh failed ({resp.status_code}). "
-            "Re-authenticate at developer.whoop.com and update ~/.zeroclaw/config.toml."
+            "Re-authenticate at developer.whoop.com, then run:\n"
+            "  python scripts/plugin_secrets.py set whoop whoop_access_token\n"
+            "  python scripts/plugin_secrets.py set whoop whoop_refresh_token"
         )
 
     data = resp.json()
     new_access = data["access_token"]
-    new_refresh = data.get("refresh_token", whoop["refresh_token"])
+    new_refresh = data.get("refresh_token", store.get("whoop_refresh_token"))
     expires_in = data.get("expires_in", 3600)
     new_expires = (
         datetime.now(timezone.utc) + timedelta(seconds=expires_in)
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    save_tokens(new_access, new_refresh, new_expires)
+    # Write refreshed tokens back to the SecretStore (encrypted)
+    store.set("whoop_access_token", new_access)
+    store.set("whoop_refresh_token", new_refresh)
+    # token_expires_at is not sensitive; store plaintext for easy inspection
+    store.set("whoop_token_expires_at", new_expires, encrypt=False)
+
     print(f"Token refreshed. Expiry: {new_expires}", file=sys.stderr)
     return new_access
 
@@ -475,7 +475,8 @@ def main() -> None:
         session = None
         print("Running in mock mode.", file=sys.stderr)
     else:
-        token = ensure_valid_token(cfg)
+        store = SecretStore(PLUGIN_NAME)
+        token = ensure_valid_token(store)
         session = requests.Session()
         session.headers["Authorization"] = f"Bearer {token}"
 

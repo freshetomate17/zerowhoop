@@ -4,9 +4,10 @@
 *.db-wal
 *.db-shm
 
-# Secrets
+# Secrets — never commit real credentials
 .env
 .env.*
+config.toml
 config.local.toml
 *_token.txt
 *_secret.txt

@@ -1,0 +1,24 @@
+# ZeroWhoop configuration template — NON-SECRET settings only.
+# Copy this file to ~/.zeroclaw/config.toml.
+#
+# Credentials (tokens, keys) are stored encrypted via SecretStore.
+# Set them once with:
+#
+#   python scripts/plugin_secrets.py set whoop whoop_client_id
+#   python scripts/plugin_secrets.py set whoop whoop_client_secret
+#   python scripts/plugin_secrets.py set whoop whoop_access_token
+#   python scripts/plugin_secrets.py set whoop whoop_refresh_token
+#   python scripts/plugin_secrets.py set whoop discord_bot_token
+#
+# Secrets are stored encrypted at:
+#   ~/.config/zeroclaw/plugins/whoop/secrets.toml
+# Encryption key at:
+#   ~/.config/zeroclaw/.key  (owner read/write only)
+
+[whoop]
+# Uncomment to use generated mock data instead of the live WHOOP API.
+# mode = "mock"
+
+[discord]
+# Public channel ID — not a secret, safe to keep here.
+channel_id = "your_discord_channel_id_here"
