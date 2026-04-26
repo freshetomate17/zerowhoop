@@ -1,0 +1,8 @@
+name = "whoop-ingest"
+version = "0.1.0"
+author = "zerowhoop"
+description = "Fetches WHOOP biometric data from the API and writes it to a local SQLite database."
+category = "data"
+license = "MIT"
+tags = ["Community"]
+permissions = ["file_read", "file_write", "network"]

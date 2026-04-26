@@ -74,13 +74,45 @@ mode = "mock"
 
 In mock mode, the skill reads from `~/.zeroclaw/workspace/data/mock_whoop_seed.json` instead of calling the API. Use `mock/generate_mock_data.py` to generate this seed.
 
-## Implementation notes for the developer
+## Agent invocation
 
-This skill is implemented as:
-1. Python script `fetch.py` invoked via the agent's `python` shell command
-2. Uses `requests` for the WHOOP API
-3. Uses `sqlite3` (stdlib) for database writes
-4. Idempotent: re-running for the same date range upserts, doesn't duplicate
+When this skill is needed, invoke the script directly via shell:
+
+```bash
+# Fetch all metrics for the last 7 days (default)
+python skills/whoop-ingest/fetch.py --metric all --days 7
+
+# Fetch only recovery for the last 14 days
+python skills/whoop-ingest/fetch.py --metric recovery --days 14
+
+# Full sync before a deep analysis
+python skills/whoop-ingest/fetch.py --metric all --days 30
+```
+
+Each metric prints one JSON result to stdout:
+```json
+{"metric": "recovery", "rows_fetched": 7, "rows_inserted": 5, "rows_updated": 2, "date_range": ["2026-04-19", "2026-04-26"], "source": "whoop"}
+```
+
+If `rows_fetched` is 0, the WHOOP account may have no data for that window or the token may need re-authentication.
+
+## Dependencies
+
+```
+requests>=2.28
+tomli>=2.0    # only needed on Python < 3.11; tomllib is built-in from 3.11+
+```
+
+Install with: `pip install requests tomli`
+
+## Implementation notes
+
+- Python script `fetch.py` invoked via the agent's shell
+- Uses `requests` for the WHOOP API with cursor-based pagination (`nextToken`)
+- Uses `sqlite3` (stdlib) for all database writes
+- Idempotent: checks row existence before each write; same date/id upserts, never duplicates
+- Skips `nap` records from the sleep table (main sleep only)
+- Only writes records with `score_state == "SCORED"`; pending/unscored records are skipped
 
 API endpoints used:
 - `GET /developer/v1/recovery` — recovery scores
@@ -88,7 +120,7 @@ API endpoints used:
 - `GET /developer/v1/activity/workout` — workouts
 - `GET /developer/v1/cycle` — daily cycles
 
-Rate limits: 100 requests per minute. The skill includes exponential backoff.
+Rate limits: 100 requests per minute. The skill retries with exponential backoff on 429.
 
 ## Common errors
 
