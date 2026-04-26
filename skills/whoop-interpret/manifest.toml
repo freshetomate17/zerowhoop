@@ -1,0 +1,8 @@
+name = "whoop-interpret"
+version = "0.1.0"
+author = "zerowhoop"
+description = "Detects health-relevant patterns in WHOOP data and writes structured findings to the database."
+category = "data"
+license = "MIT"
+tags = ["Community"]
+permissions = ["file_read", "file_write"]
